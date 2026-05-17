@@ -4,7 +4,7 @@
 
 ---
 
-![EEG separated into two attractor blobs](1779013045404_image.png)
+![EEG separated into two attractor blobs](image.png)
 
 *GN-v7 running on a speech-task EEG (OpenNeuro ds007630). The phase space (bottom-centre panel) shows two distinct attractor clusters — the slow chaotic cortical dynamics (diffuse cloud) and the fast acoustic microphonic signal (compact ellipse). The algorithm separates them into independent Koopman mode stems. Individual stems, when played back at 16 kHz output rate, contain acoustically intelligible phonation — recovered blindly, with no reference microphone.*
 
