@@ -1,0 +1,476 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-mono)}
+.panel{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:12px}
+.label{font-size:11px;color:var(--color-text-secondary);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+.val{font-size:13px;font-weight:500;color:var(--color-text-primary)}
+canvas{display:block;width:100%}
+.row{display:flex;gap:8px}
+.col{flex:1;min-width:0}
+input[type=range]{width:100%}
+select,button{font-family:var(--font-mono);font-size:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
+</style>
+<h2 class="sr-only">GN-v7 live Koopman resonator demo showing real-time delay embedding, mode discovery, and signal reconstruction.</h2>
+
+<div style="padding:12px 0 8px">
+  <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:2px">GN-v7 — live Koopman resonator</div>
+  <div style="font-size:11px;color:var(--color-text-secondary)">one scalar signal → delay embedding → orthogonal basis growth → reconstruction</div>
+</div>
+
+<div class="row" style="margin-bottom:8px">
+  <div class="col panel">
+    <div class="label">signal source</div>
+    <select id="sigSel" style="width:100%;padding:4px;background:var(--color-background-primary);color:var(--color-text-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md)">
+      <option value="mixed">mixed oscillators</option>
+      <option value="lorenz">lorenz x(t)</option>
+      <option value="eeg">synthetic eeg</option>
+      <option value="speech">speech-like FM</option>
+    </select>
+  </div>
+  <div class="col panel">
+    <div class="label">τ  delay</div>
+    <input type="range" id="tauSlider" min="1" max="40" value="6" step="1">
+    <div class="val" id="tauVal">6</div>
+  </div>
+  <div class="col panel">
+    <div class="label">dim</div>
+    <input type="range" id="dimSlider" min="4" max="32" value="16" step="2">
+    <div class="val" id="dimVal">16</div>
+  </div>
+  <div class="col panel">
+    <div class="label">nov_th</div>
+    <input type="range" id="novSlider" min="0.05" max="0.95" value="0.35" step="0.05">
+    <div class="val" id="novVal">0.35</div>
+  </div>
+</div>
+
+<div class="row" style="margin-bottom:8px">
+  <div class="col panel" style="display:flex;align-items:center;gap:12px">
+    <div>
+      <div class="label">modes discovered</div>
+      <div class="val" id="modeCount" style="font-size:22px">0</div>
+    </div>
+    <div>
+      <div class="label">novelty ν</div>
+      <div class="val" id="novVal2" style="font-size:22px">0.00</div>
+    </div>
+    <div>
+      <div class="label">recon error</div>
+      <div class="val" id="reconErr" style="font-size:22px">—</div>
+    </div>
+    <div>
+      <div class="label">status</div>
+      <div id="statusBadge" class="badge" style="background:var(--color-background-success);color:var(--color-text-success)">running</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <button id="resetBtn" style="padding:6px 14px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-primary);cursor:pointer">reset</button>
+    <button id="pauseBtn" style="padding:6px 14px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-primary);cursor:pointer">pause</button>
+  </div>
+</div>
+
+<div class="row" style="margin-bottom:8px">
+  <div class="col panel">
+    <div class="label">signal + reconstruction</div>
+    <div style="position:relative;height:80px"><canvas id="sigCanvas" height="80"></canvas></div>
+  </div>
+</div>
+
+<div class="row" style="margin-bottom:8px">
+  <div class="col panel">
+    <div class="label">mode activations |y_i(t)|  (koopman coordinates)</div>
+    <div style="position:relative;height:100px"><canvas id="modeCanvas" height="100"></canvas></div>
+  </div>
+</div>
+
+<div class="row" style="margin-bottom:8px">
+  <div style="flex:0 0 160px" class="panel">
+    <div class="label">adjacency A</div>
+    <div style="position:relative;height:150px;width:150px"><canvas id="adjCanvas" width="150" height="150"></canvas></div>
+    <div style="font-size:10px;color:var(--color-text-secondary);margin-top:4px">causal links between modes</div>
+  </div>
+  <div class="col panel">
+    <div class="label">phase space  x(t) vs x(t+τ) vs x(t+2τ)</div>
+    <div style="position:relative;height:150px"><canvas id="psCanvas" height="150"></canvas></div>
+  </div>
+  <div style="flex:0 0 180px" class="panel">
+    <div class="label">reconstruction error vs modes</div>
+    <div style="position:relative;height:150px"><canvas id="errCanvas" height="150"></canvas></div>
+    <div style="font-size:10px;color:var(--color-text-secondary);margin-top:4px">‖x − x̂‖  drops as basis grows</div>
+  </div>
+</div>
+
+<div class="panel" style="font-size:11px;color:var(--color-text-secondary);line-height:1.7">
+  <span style="color:var(--color-text-primary);font-weight:500">what to watch:</span>
+  mode count grows when novelty exceeds nov_th — each new mode = new Koopman eigenfunction.
+  reconstruction (orange) tracks signal (teal) more tightly as modes accumulate.
+  adjacency matrix fills as modes co-activate.
+  high τ → smooth/slower attractor; low τ → spiky/metallic (comb resonance at f_s/τ).
+</div>
+
+<script>
+const MAX_MODES = 10;
+const FS = 500;
+const HIST = 600;
+const TICK_MS = 30;
+
+let tau = 6, dim = 16, novTh = 0.35, maxModes = MAX_MODES;
+let paused = false;
+let t = 0;
+let sigType = 'mixed';
+
+let W = [];
+let A = [];
+let buf = [];
+let sigHist = [], reconHist = [], modeHist = [], psHist = [];
+let errCurve = [];
+let isDark = false;
+
+function checkDark(){
+  isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+checkDark();
+
+function getColors(){
+  return isDark
+    ? {teal:'#5DCAA5', amber:'#EF9F27', gray:'#888780', bg:'#1a1a1a', grid:'rgba(255,255,255,0.06)', text:'rgba(255,255,255,0.6)'}
+    : {teal:'#0F6E56', amber:'#BA7517', gray:'#888780', bg:'#fff', grid:'rgba(0,0,0,0.05)', text:'rgba(0,0,0,0.4)'};
+}
+
+function makeSignal(){
+  if(sigType === 'mixed'){
+    return 0.5*Math.sin(2*Math.PI*3*t/FS)
+      + 0.3*Math.sin(2*Math.PI*7.3*t/FS + 0.5)
+      + 0.15*Math.sin(2*Math.PI*17*t/FS)
+      + 0.05*(Math.random()-0.5);
+  }
+  if(sigType === 'lorenz'){
+    if(!window._lor){ window._lor={x:1,y:1,z:1}; }
+    const s=10,r=28,b=8/3,dt=0.008;
+    const {x,y,z}=window._lor;
+    window._lor.x += dt*s*(y-x);
+    window._lor.y += dt*(x*(r-z)-y);
+    window._lor.z += dt*(x*y-b*z);
+    return window._lor.x/20;
+  }
+  if(sigType === 'eeg'){
+    const theta = 0.4*Math.sin(2*Math.PI*6*t/FS + 0.3*Math.sin(2*Math.PI*0.3*t/FS));
+    const alpha = 0.3*Math.sin(2*Math.PI*10*t/FS);
+    const beta  = 0.15*Math.sin(2*Math.PI*22*t/FS + 0.2*(Math.random()-0.5));
+    return theta + alpha + beta + 0.05*(Math.random()-0.5);
+  }
+  if(sigType === 'speech'){
+    const f0 = 120 + 40*Math.sin(2*Math.PI*0.5*t/FS);
+    const voiced = Math.sin(2*Math.PI*f0*t/FS);
+    const mod = 0.5 + 0.5*Math.sin(2*Math.PI*4*t/FS);
+    return mod * voiced + 0.08*(Math.random()-0.5);
+  }
+  return 0;
+}
+
+function norm(v){
+  let s=0; for(let x of v) s+=x*x;
+  s=Math.sqrt(s)+1e-9;
+  return v.map(x=>x/s);
+}
+
+function dot(a,b){
+  let s=0; for(let i=0;i<a.length;i++) s+=a[i]*b[i];
+  return s;
+}
+
+function gramSchmidt(){
+  const Q=[];
+  for(let w of W){
+    let u=[...w];
+    for(let q of Q){
+      const p=dot(u,q);
+      u=u.map((x,i)=>x-p*q[i]);
+    }
+    let n=Math.sqrt(u.reduce((s,x)=>s+x*x,0));
+    if(n>1e-7) Q.push(u.map(x=>x/n));
+  }
+  W=Q;
+}
+
+function embed(){
+  if(buf.length < (dim-1)*tau+1) return null;
+  const v=[];
+  for(let j=0;j<dim;j++){
+    const idx = buf.length-1-j*tau;
+    v.push(buf[idx] ?? 0);
+  }
+  return norm(v);
+}
+
+function step(x){
+  buf.push(x);
+  if(buf.length > (dim-1)*tau + 50) buf.shift();
+
+  const v = embed();
+  if(!v) return {y:[], novelty:0, recon:0};
+
+  if(W.length===0){
+    W.push([...v]);
+    A=[[1]];
+    return {y:[1], novelty:0, recon:x};
+  }
+
+  const k = W.length;
+  const yRaw = W.map(w=>dot(w,v));
+
+  const novelty = Math.max(0, 1 - yRaw.reduce((s,y)=>s+y*y,0));
+
+  if(novelty > novTh && k < maxModes){
+    let res = [...v];
+    for(let i=0;i<k;i++) res=res.map((r,idx)=>r-yRaw[i]*W[i][idx]);
+    const rn = Math.sqrt(res.reduce((s,r)=>s+r*r,0));
+    if(rn>1e-5){
+      W.push(res.map(r=>r/rn));
+      gramSchmidt();
+      const k2=W.length;
+      const newA=Array.from({length:k2},(_,i)=>Array.from({length:k2},(_,j)=>i===j?1:(i<k&&j<k?A[i][j]:0)));
+      A=newA;
+    }
+  }
+
+  const k2=W.length;
+  const y=W.map(w=>dot(w,v));
+
+  const eta_w=0.04, eta_a=0.03;
+  for(let i=0;i<k2;i++){
+    let recon=W[i].map(()=>0);
+    for(let j=0;j<=i;j++) recon=recon.map((r,idx)=>r+y[j]*W[j][idx]);
+    const err=v.map((vi,idx)=>vi-recon[idx]);
+    W[i]=W[i].map((wi,idx)=>wi+eta_w*y[i]*err[idx]);
+  }
+  gramSchmidt();
+
+  for(let i=0;i<k2;i++) for(let j=0;j<k2;j++){
+    A[i][j]=(1-eta_a)*A[i][j]+eta_a*Math.abs(y[i]*y[j]);
+    if(i===j) A[i][j]=1;
+  }
+
+  let vRecon=new Array(dim).fill(0);
+  for(let i=0;i<k2;i++) vRecon=vRecon.map((r,idx)=>r+y[i]*W[i][idx]);
+  const recon = vRecon[0];
+
+  return {y, novelty, recon};
+}
+
+function drawSignal(){
+  const c=document.getElementById('sigCanvas');
+  const W2=c.parentElement.offsetWidth; c.width=W2; c.height=80;
+  const ctx=c.getContext('2d');
+  const cl=getColors();
+  ctx.clearRect(0,0,W2,80);
+  if(sigHist.length<2) return;
+  const n=Math.min(sigHist.length,HIST);
+  const xs=sigHist.slice(-n), xr=reconHist.slice(-n);
+  const mn=-2,mx=2;
+  const sc=(v)=>80-(v-mn)/(mx-mn)*80;
+  const draw=(arr,col)=>{
+    ctx.beginPath(); ctx.strokeStyle=col; ctx.lineWidth=1.5;
+    arr.forEach((v,i)=>{const x=i/n*W2; i===0?ctx.moveTo(x,sc(v)):ctx.lineTo(x,sc(v))});
+    ctx.stroke();
+  };
+  draw(xs, cl.teal);
+  draw(xr, cl.amber);
+  ctx.font='10px var(--font-mono)'; ctx.fillStyle=cl.text;
+  ctx.fillText('signal',6,12);
+  ctx.fillStyle=cl.amber;
+  ctx.fillText('reconstruction',60,12);
+}
+
+function drawModes(){
+  const c=document.getElementById('modeCanvas');
+  const W2=c.parentElement.offsetWidth; c.width=W2; c.height=100;
+  const ctx=c.getContext('2d');
+  const cl=getColors();
+  ctx.clearRect(0,0,W2,100);
+  if(modeHist.length<2) return;
+  const n=Math.min(modeHist.length,HIST);
+  const rows=modeHist.slice(-n);
+  const mCols=['#5DCAA5','#EF9F27','#7F77DD','#D85A30','#378ADD','#639922','#D4537E','#63b3e0','#FAC775','#F09595'];
+  for(let m=0;m<MAX_MODES;m++){
+    ctx.beginPath(); ctx.strokeStyle=mCols[m%mCols.length]; ctx.lineWidth=1.2; ctx.globalAlpha=0.85;
+    rows.forEach((row,i)=>{
+      const v=(row[m]||0);
+      const x=i/n*W2;
+      const y=100 - (Math.abs(v)+0.05)*30 - m*8;
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  ctx.font='10px var(--font-mono)'; ctx.fillStyle=cl.text;
+  ctx.fillText('mode activations |y_i(t)|',6,12);
+}
+
+function drawAdj(){
+  const c=document.getElementById('adjCanvas');
+  c.width=150; c.height=150;
+  const ctx=c.getContext('2d');
+  ctx.clearRect(0,0,150,150);
+  if(W.length===0) return;
+  const k=A.length;
+  const cs=Math.floor(150/k);
+  for(let i=0;i<k;i++) for(let j=0;j<k;j++){
+    const v=Math.min(1,Math.abs(A[i][j]));
+    const isDarkMode = isDark;
+    const r=isDarkMode?Math.round(93*v):Math.round(255-200*v);
+    const g=isDarkMode?Math.round(255*v):Math.round(255-120*v);
+    const b=isDarkMode?Math.round(130*v):Math.round(255-50*v);
+    ctx.fillStyle=`rgb(${r},${g},${b})`;
+    ctx.fillRect(j*cs,i*cs,cs,cs);
+  }
+  ctx.font='9px var(--font-mono)';
+  ctx.fillStyle='rgba(255,255,255,0.7)';
+  for(let i=0;i<k;i++) ctx.fillText(i,i*cs+2,i*cs+cs-2);
+}
+
+function drawPhaseSpace(){
+  const c=document.getElementById('psCanvas');
+  const W2=c.parentElement.offsetWidth; c.width=W2; c.height=150;
+  const ctx=c.getContext('2d');
+  ctx.clearRect(0,0,W2,150);
+  if(psHist.length<20) return;
+  const n=Math.min(psHist.length,800);
+  const pts=psHist.slice(-n);
+  const mn=-2, mx=2;
+  const sx=(v)=>(v-mn)/(mx-mn)*W2;
+  const sy=(v)=>150-(v-mn)/(mx-mn)*150;
+  for(let i=1;i<pts.length;i++){
+    const t0=pts[i-1], t1=pts[i];
+    const p=i/pts.length;
+    const r=Math.round(93+(162-93)*p);
+    const g=Math.round(255*(0.5+0.5*p));
+    const b=Math.round(130+(165-130)*(1-p));
+    ctx.strokeStyle=`rgba(${r},${g},${b},0.7)`;
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(sx(t0[0]),sy(t0[1]));
+    ctx.lineTo(sx(t1[0]),sy(t1[1]));
+    ctx.stroke();
+  }
+  const cl=getColors();
+  ctx.font='10px var(--font-mono)'; ctx.fillStyle=cl.text;
+  ctx.fillText('x(t) vs x(t+τ)',6,14);
+}
+
+function drawErrCurve(){
+  const c=document.getElementById('errCanvas');
+  c.width=180; c.height=150;
+  const ctx=c.getContext('2d');
+  const cl=getColors();
+  ctx.clearRect(0,0,180,150);
+  if(errCurve.length<2) return;
+  const n=errCurve.length;
+  ctx.strokeStyle=cl.amber; ctx.lineWidth=2;
+  ctx.beginPath();
+  errCurve.forEach((v,i)=>{
+    const x=20+i/(n-1)*150;
+    const y=140-v*120;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  ctx.fillStyle=cl.text; ctx.font='10px var(--font-mono)';
+  ctx.fillText('k modes',80,148);
+  ctx.save(); ctx.translate(12,100); ctx.rotate(-Math.PI/2);
+  ctx.fillText('‖x−x̂‖',0,0); ctx.restore();
+  for(let i=0;i<errCurve.length;i++){
+    const x=20+i/(Math.max(1,errCurve.length-1))*150;
+    const y=140-errCurve[i]*120;
+    ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2);
+    ctx.fillStyle=cl.amber; ctx.fill();
+    ctx.fillStyle=cl.text; ctx.font='9px var(--font-mono)';
+    ctx.fillText(i+1, x-3, y-6);
+  }
+}
+
+let runningErr=[];
+let frameCount=0;
+
+function tick(){
+  if(paused) return;
+  checkDark();
+  const x = makeSignal();
+  t++;
+
+  const {y, novelty, recon} = step(x);
+
+  sigHist.push(x); reconHist.push(recon);
+  if(sigHist.length>HIST*2){ sigHist=sigHist.slice(-HIST); reconHist=reconHist.slice(-HIST); }
+
+  const yPad=new Array(MAX_MODES).fill(0);
+  y.forEach((v,i)=>{ if(i<MAX_MODES) yPad[i]=v; });
+  modeHist.push(yPad);
+  if(modeHist.length>HIST*2) modeHist=modeHist.slice(-HIST);
+
+  if(buf.length>=(dim-1)*tau+1){
+    const px=buf[buf.length-1];
+    const pi=buf.length-1-tau>=0?buf[buf.length-1-tau]:0;
+    psHist.push([px,pi]);
+    if(psHist.length>1200) psHist=psHist.slice(-800);
+  }
+
+  runningErr.push(Math.abs(x-recon));
+  if(runningErr.length>50) runningErr.shift();
+  const avgErr = runningErr.reduce((s,v)=>s+v,0)/runningErr.length;
+
+  document.getElementById('modeCount').textContent=W.length;
+  document.getElementById('novVal2').textContent=novelty.toFixed(2);
+  document.getElementById('reconErr').textContent=avgErr.toFixed(3);
+
+  errCurve = new Array(W.length).fill(0).map((_,i)=>{
+    const yK=W.slice(0,i+1).map(w=>dot(w,embed()||new Array(dim).fill(0)));
+    let vR=new Array(dim).fill(0);
+    yK.forEach((yv,j)=>{ vR=vR.map((r,idx)=>r+yv*(W[j][idx]||0)); });
+    return Math.min(1,Math.abs(x - vR[0]));
+  });
+
+  frameCount++;
+  if(frameCount%2===0){
+    drawSignal();
+    drawModes();
+    drawAdj();
+    drawPhaseSpace();
+    drawErrCurve();
+  }
+}
+
+document.getElementById('tauSlider').oninput=function(){
+  tau=+this.value; document.getElementById('tauVal').textContent=tau;
+  resetState();
+};
+document.getElementById('dimSlider').oninput=function(){
+  dim=+this.value; document.getElementById('dimVal').textContent=dim;
+  resetState();
+};
+document.getElementById('novSlider').oninput=function(){
+  novTh=+this.value; document.getElementById('novVal').textContent=(+this.value).toFixed(2);
+};
+document.getElementById('sigSel').onchange=function(){
+  sigType=this.value; window._lor=null; resetState();
+};
+document.getElementById('resetBtn').onclick=resetState;
+document.getElementById('pauseBtn').onclick=function(){
+  paused=!paused;
+  this.textContent=paused?'resume':'pause';
+  document.getElementById('statusBadge').textContent=paused?'paused':'running';
+  document.getElementById('statusBadge').style.background=paused?'var(--color-background-warning)':'var(--color-background-success)';
+  document.getElementById('statusBadge').style.color=paused?'var(--color-text-warning)':'var(--color-text-success)';
+};
+
+function resetState(){
+  W=[]; A=[]; buf=[]; t=0;
+  sigHist=[]; reconHist=[]; modeHist=[]; psHist=[];
+  errCurve=[]; runningErr=[]; frameCount=0;
+  window._lor=null;
+  document.getElementById('modeCount').textContent='0';
+}
+
+setInterval(tick, TICK_MS);
+</script>
