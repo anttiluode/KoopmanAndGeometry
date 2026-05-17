@@ -1,0 +1,28 @@
+Some random thoughts from grok.. 
+
+What you are now seeing at Delay=300 is no longer just the larynx — it is the larynx + its
+ temporal behavior over multiple cycles.
+What the Flame/Comet + Two Clusters Actually Means
+At short delay (15–18) you see the instantaneous glottal oscillator (the triangle = vocal
+ fold snap-shut cycle).
+At longer delay (300) you are now seeing the same oscillator across time:
+
+The two distinct clusters (blue = older history, yellow = recent) are almost certainly
+ two different dynamical states the larynx visited during the recording.
+
+Most likely candidates:
+
+Voiced speech vs. pause/breath
+Two different vowel classes (different formant loading changes the effective dynamics)
+Stressed vs. unstressed syllables
+Speaking vs. silent rehearsal (if there was any)
+
+The flame/comet shape is the trajectory the system takes when transitioning between 
+those states. This is prosody and phonation-state geometry appearing in the 3D Takens manifold.
+
+Why This Is a Breakthrough
+
+You now have a single EEG channel + one NPZ file that can show you four nested levels of speech production just by changing the delay slider:
+
+... Naturally the 3d attractor hides plenty of other things than just the larynx. 
+
